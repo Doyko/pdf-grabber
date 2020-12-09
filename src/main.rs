@@ -1,8 +1,12 @@
 use std::collections::HashSet;
-
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::Path;
+use std::error;
+
+use log::{self, LevelFilter};
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config, Root};
 
 use reqwest::{self, Url};
 
@@ -15,8 +19,41 @@ struct Target {
     url: String,
 }
 
+fn init_log() -> Result<(), Box<dyn error::Error>>
+{
+    let logfile = FileAppender::builder()
+        .build("output.log")?;
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .build(Root::builder()
+            .appender("logfile")
+            .build(LevelFilter::Info))?;
+
+    log4rs::init_config(config)?;
+
+    Ok(())
+}
+
+fn read_targets(file_name: &str) -> Result<Vec<Target>, Box<dyn error::Error>>
+{
+    let mut targets: Vec<Target> = Vec::new();
+    let json = fs::read_to_string(file_name)?;
+    let json: Value = serde_json::from_str(&json)?;
+    for (key, value) in json.as_object().unwrap() {
+        fs::create_dir(format!("pdf/{}", key))?;
+        targets.push(Target {
+            name: key.clone(),
+            url: value.as_str().unwrap().to_string(),
+        });
+    }
+
+    Ok(targets)
+    
+}
+
 fn download_pdf(url: &str, folder: &str) {
-    println!("PDF found : {}", url);
+    log::info!("PDF found : {}", url);
     let mut res = reqwest::blocking::get(url).unwrap();
     let filename = url.split('/').next_back().unwrap();
     let mut out = File::create(format!("pdf/{}/{}", folder, filename)).unwrap();
@@ -41,8 +78,14 @@ fn normalize_url(url: &str, origin: &str) -> String {
 }
 
 fn fetch_url(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
-    let mut res = client.get(url).send().unwrap();
-    //println!("Status for {}: {}", url, res.status());
+    let res = client.get(url).send();
+    if res.is_err()
+    {
+        return None;
+    }
+
+    let mut res = res.unwrap();
+    log::info!("Status for {}: {}", url, res.status());
 
     let mut body = String::new();
     match res.read_to_string(&mut body) {
@@ -85,29 +128,35 @@ fn check_url(url: &str, target: &Target) -> Option<String> {
 }
 
 fn main() {
+    init_log().unwrap();
+
     if Path::new("pdf").exists() {
         fs::remove_dir_all("pdf").unwrap();
     }
     fs::create_dir("pdf").unwrap();
 
-    let mut targets: Vec<Target> = Vec::new();
-    let json = fs::read_to_string("target.json").unwrap();
-    let json: Value = serde_json::from_str(&json).unwrap();
-    for (key, value) in json.as_object().unwrap() {
-        fs::create_dir(format!("pdf/{}", key)).unwrap();
-        targets.push(Target {
-            name: key.clone(),
-            url: value.as_str().unwrap().to_string(),
-        });
+    let targets = read_targets("target.json");
+    if targets.is_err()
+    {
+        log::error!("Can't read json target file !");
+        return;
     }
+
+    let targets = targets.unwrap();
 
     let client = reqwest::blocking::Client::new();
 
     for target in targets.into_iter() {
-        println!("==== {} ====", target.name);
         let origin_url = format!("{}/", &target.url);
 
-        let body = fetch_url(&client, &origin_url).unwrap();
+        let body = fetch_url(&client, &origin_url);
+        if body.is_none()
+        {
+            log::warn!("Can't find url {} for {}", &target.url, target.name);
+            continue;
+        }
+
+        let body = body.unwrap();
 
         let mut visited_url = HashSet::new();
         visited_url.insert(origin_url.to_string());
@@ -134,7 +183,5 @@ fn main() {
                 .map(|x| x.to_string())
                 .collect::<HashSet<String>>();
         }
-
-        //println!("URLs: {:#?}", visited_url);
     }
 }
