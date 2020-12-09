@@ -4,12 +4,12 @@ This project aims at gathering all pdf files from a list of websites.
 
 ## Compilation and execution
 
-First, the targetted URL should be specified in a file named `target.json` as following:
+First, all targeted URL should be specified in a file named `target.json` as following:
 ```json
 {
-    "id1": "url1",
-    "id2": "url2",
-    ...
+    "id_1": "url_1",
+    "id_2": "url_2",
+    "id_3": "url_3"
 }
 ```
 Then, the program can be simply built and run using cargo:
@@ -20,6 +20,6 @@ The program will then crawl all the websites listed in `target.json` and downloa
 
 ## Output
 
-When ran, the program creates a directory called `pdf` where it is ran. Then, it creates a directory `pdf/id` where `id` is the identifier of the website it is crawling at the moment. All the found PDF files will be downloaded in `pdf/id/`.
+When ran, the program creates a directory called `pdf`. Then, it creates a directory `pdf/id` where id is the identifier of the website it is crawling. All the PDF files found on this site will be downloaded in this folder.
 
-The program also logs its findings in a file `output.log`.
+The program also logs a trace in a file `output.log`.
