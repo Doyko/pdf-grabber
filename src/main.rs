@@ -16,7 +16,8 @@ use regex::Regex;
 
 use serde_json::Value;
 
-static RE: Lazy<Regex> = Lazy::new(|| Regex::new("href *= *\"([a-zA-Z0-9\\(\\)!@:%_.~#?&=/\\+\\-]+)").unwrap());
+static RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new("href *= *\"([a-zA-Z0-9\\(\\)!@:%_.~#?&=/\\+\\-]+)").unwrap());
 
 struct Target {
     name: String,
@@ -49,14 +50,12 @@ fn read_targets(file_name: &str) -> Result<Vec<Target>, Box<dyn error::Error>> {
         })
         .collect::<Vec<Target>>();
 
-    targets.iter().for_each(|target|
-        {
-            let path = format!("pdf/{}", target.name);
-            if !Path::new(&path).exists()
-            {
-                fs::create_dir(&path).unwrap();
-            }
-        });
+    targets.iter().for_each(|target| {
+        let path = format!("pdf/{}", target.name);
+        if !Path::new(&path).exists() {
+            fs::create_dir(&path).unwrap();
+        }
+    });
 
     Ok(targets)
 }
