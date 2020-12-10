@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use std::error;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::Path;
-use std::error;
+
+use once_cell::sync::Lazy;
 
 use log::{self, LevelFilter};
 use log4rs::append::file::FileAppender;
@@ -14,42 +16,49 @@ use regex::Regex;
 
 use serde_json::Value;
 
+static RE: Lazy<Regex> = Lazy::new(|| Regex::new("href *= *\"([a-zA-Z0-9\\(\\)!@:%_.~#?&=/\\+\\-]+)").unwrap());
+
 struct Target {
     name: String,
     url: String,
 }
 
-fn init_log() -> Result<(), Box<dyn error::Error>>
-{
-    let logfile = FileAppender::builder()
-        .build("output.log")?;
+fn init_log() -> Result<(), Box<dyn error::Error>> {
+    let logfile = FileAppender::builder().build("output.log")?;
 
     let config = Config::builder()
         .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .build(Root::builder()
-            .appender("logfile")
-            .build(LevelFilter::Info))?;
+        .build(Root::builder().appender("logfile").build(LevelFilter::Info))?;
 
     log4rs::init_config(config)?;
 
     Ok(())
 }
 
-fn read_targets(file_name: &str) -> Result<Vec<Target>, Box<dyn error::Error>>
-{
-    let mut targets: Vec<Target> = Vec::new();
+fn read_targets(file_name: &str) -> Result<Vec<Target>, Box<dyn error::Error>> {
     let json = fs::read_to_string(file_name)?;
     let json: Value = serde_json::from_str(&json)?;
-    for (key, value) in json.as_object().unwrap() {
-        fs::create_dir(format!("pdf/{}", key))?;
-        targets.push(Target {
-            name: key.clone(),
+
+    let targets = json
+        .as_object()
+        .unwrap()
+        .into_iter()
+        .map(move |(key, value)| Target {
+            name: key.to_string(),
             url: value.as_str().unwrap().to_string(),
+        })
+        .collect::<Vec<Target>>();
+
+    targets.iter().for_each(|target|
+        {
+            let path = format!("pdf/{}", target.name);
+            if !Path::new(&path).exists()
+            {
+                fs::create_dir(&path).unwrap();
+            }
         });
-    }
 
     Ok(targets)
-    
 }
 
 fn download_pdf(url: &str, folder: &str) {
@@ -62,13 +71,11 @@ fn download_pdf(url: &str, folder: &str) {
 }
 
 fn normalize_url(url: &str, origin: &str) -> String {
-    let normalized_url: &str;
-
-    if let Some(pos) = url.find('#') {
-        normalized_url = &url[..pos];
+    let normalized_url = if let Some(pos) = url.find('#') {
+        &url[..pos]
     } else {
-        normalized_url = url;
-    }
+        url
+    };
 
     if normalized_url.starts_with("/") {
         return format!("{}{}", origin, normalized_url);
@@ -78,13 +85,8 @@ fn normalize_url(url: &str, origin: &str) -> String {
 }
 
 fn fetch_url(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
-    let res = client.get(url).send();
-    if res.is_err()
-    {
-        return None;
-    }
+    let mut res = client.get(url).send().ok()?;
 
-    let mut res = res.unwrap();
     log::info!("Status for {}: {}", url, res.status());
 
     let mut body = String::new();
@@ -95,9 +97,7 @@ fn fetch_url(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
 }
 
 fn get_link_from_url(html: &str, target: &Target) -> HashSet<String> {
-    let re = Regex::new("href *= *\"([a-zA-Z0-9\\(\\)!@:%_.~#?&=/\\+\\-]+)").unwrap();
-
-    re.captures_iter(html)
+    RE.captures_iter(html)
         .map(|c| c[1].to_string())
         .filter_map(|c| check_url(&c, target))
         .collect::<HashSet<String>>()
@@ -130,14 +130,12 @@ fn check_url(url: &str, target: &Target) -> Option<String> {
 fn main() {
     init_log().unwrap();
 
-    if Path::new("pdf").exists() {
-        fs::remove_dir_all("pdf").unwrap();
+    if !Path::new("pdf").exists() {
+        fs::create_dir("pdf").unwrap();
     }
-    fs::create_dir("pdf").unwrap();
 
     let targets = read_targets("target.json");
-    if targets.is_err()
-    {
+    if targets.is_err() {
         log::error!("Can't read json target file !");
         return;
     }
@@ -146,12 +144,11 @@ fn main() {
 
     let client = reqwest::blocking::Client::new();
 
-    for target in targets.into_iter() {
+    for target in targets {
         let origin_url = format!("{}/", &target.url);
 
         let body = fetch_url(&client, &origin_url);
-        if body.is_none()
-        {
+        if body.is_none() {
             log::warn!("Can't find url {} for {}", &target.url, target.name);
             continue;
         }
