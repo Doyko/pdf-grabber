@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::env;
 use std::error;
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -95,18 +96,23 @@ fn fetch_url(client: &reqwest::blocking::Client, url: &str) -> Option<String> {
     }
 }
 
-fn get_link_from_url(html: &str, target: &Target) -> HashSet<String> {
+fn get_link_from_url(html: &str, target: &Target, pdf_left: &mut u32) -> HashSet<String> {
     RE.captures_iter(html)
         .map(|c| c[1].to_string())
-        .filter_map(|c| check_url(&c, target))
+        .filter_map(|c| check_url(&c, target, pdf_left))
         .collect::<HashSet<String>>()
 }
 
-fn check_url(url: &str, target: &Target) -> Option<String> {
+fn check_url(url: &str, target: &Target, pdf_left: &mut u32) -> Option<String> {
+    if *pdf_left == 0 {
+        return None;
+    }
+
     let normalized_url = normalize_url(url, &target.url);
 
     if url.ends_with(".pdf") {
         download_pdf(&normalized_url, &target.name);
+        *pdf_left -= 1;
         return Some(normalized_url);
     }
 
@@ -133,6 +139,13 @@ fn main() {
         fs::create_dir("pdf").unwrap();
     }
 
+    let args = env::args().collect::<Vec<String>>();
+    let limit = args
+        .get(1)
+        .unwrap_or(&"50".to_string())
+        .parse::<u32>()
+        .unwrap();
+
     let targets = read_targets("target.json");
     if targets.is_err() {
         log::error!("Can't read json target file !");
@@ -157,7 +170,9 @@ fn main() {
         let mut visited_url = HashSet::new();
         visited_url.insert(origin_url.to_string());
 
-        let mut new_url = get_link_from_url(&body, &target)
+        let mut pdf_left: u32 = limit;
+
+        let mut new_url = get_link_from_url(&body, &target, &mut pdf_left)
             .difference(&visited_url)
             .map(|x| x.to_string())
             .collect::<HashSet<String>>();
@@ -166,11 +181,16 @@ fn main() {
             let found_urls: HashSet<String> = new_url
                 .iter()
                 .filter_map(|url| fetch_url(&client, url))
-                .map(|html| get_link_from_url(&html, &target))
+                .map(|html| get_link_from_url(&html, &target, &mut pdf_left))
                 .fold(HashSet::new(), |mut acc, x| {
                     acc.extend(x);
                     acc
                 });
+
+            if pdf_left == 0 {
+                log::info!("PDF limit of {} reached for {}", limit, target.name);
+                break;
+            }
 
             visited_url.extend(new_url);
 

@@ -14,9 +14,9 @@ First, the targeted URLs should be specified in a file named `target.json` as fo
 ```
 Then, the program can be simply built and run using cargo:
 ```
-cargo run --release
+cargo run --release <limit>
 ```
-The program will then crawl all the websites listed in `target.json` and download all the PDF files it finds.
+The program will then crawl all the websites listed in `target.json` and download all the PDF files it finds. The argument is the maximum number of PDF that the crawler will download from a website. The default value is 50.
 
 ## Output
 
