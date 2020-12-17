@@ -61,13 +61,15 @@ fn read_targets(file_name: &str) -> Result<Vec<Target>, Box<dyn error::Error>> {
     Ok(targets)
 }
 
-fn download_pdf(url: &str, folder: &str) {
+fn download_pdf(url: &str, folder: &str) -> Option<()> {
     log::info!("PDF found : {}", url);
-    let mut res = reqwest::blocking::get(url).unwrap();
-    let filename = url.split('/').next_back().unwrap();
-    let mut out = File::create(format!("pdf/{}/{}", folder, filename)).unwrap();
+    let mut res = reqwest::blocking::get(url).ok()?;
+    let filename = url.split('/').next_back()?;
+    let mut out = File::create(format!("pdf/{}/{}", folder, filename)).ok()?;
 
-    io::copy(&mut res, &mut out).unwrap();
+    io::copy(&mut res, &mut out).ok()?;
+
+    Some(())
 }
 
 fn normalize_url(url: &str, origin: &str) -> String {
@@ -111,8 +113,10 @@ fn check_url(url: &str, target: &Target, pdf_left: &mut u32) -> Option<String> {
     let normalized_url = normalize_url(url, &target.url);
 
     if url.ends_with(".pdf") {
-        download_pdf(&normalized_url, &target.name);
-        *pdf_left -= 1;
+        if download_pdf(&normalized_url, &target.name).is_some()
+        {
+            *pdf_left -= 1;
+        }
         return Some(normalized_url);
     }
 
